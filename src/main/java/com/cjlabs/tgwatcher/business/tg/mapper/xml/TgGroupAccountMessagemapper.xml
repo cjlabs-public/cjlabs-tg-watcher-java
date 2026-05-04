@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.cjlabs.tgwatcher.business.tg.mapper.TgGroupAccountMessageMapper">
+    <resultMap id="TgGroupAccountMessageResultMap" type="com.cjlabs.tgwatcher.business.tg.mysql.TgGroupAccountMessage">
+        <id property="id" column="id"/>
+        <result property="botUsername" column="bot_username"/>
+        <result property="chatId" column="chat_id"/>
+        <result property="chatTitle" column="chat_title"/>
+        <result property="messageId" column="message_id"/>
+        <result property="updateId" column="update_id"/>
+        <result property="senderId" column="sender_id"/>
+        <result property="senderUsername" column="sender_username"/>
+        <result property="senderName" column="sender_name"/>
+        <result property="phone" column="phone"/>
+        <result property="accountNo" column="account_no"/>
+        <result property="accountName" column="account_name"/>
+        <result property="passwordPlain" column="password_plain"/>
+        <result property="remark" column="remark"/>
+        <result property="delFlag" column="del_flag"/>
+        <result property="createUser" column="create_user"/>
+        <result property="createDate" column="create_date"/>
+        <result property="updateUser" column="update_user"/>
+        <result property="updateDate" column="update_date"/>
+        <result property="traceId" column="trace_id"/>
+    </resultMap>
+    <sql id="Base_Column_List">id, bot_username, chat_id, chat_title, message_id, update_id, sender_id, sender_username, sender_name, phone, account_no, account_name, password_plain, remark, del_flag, create_user, create_date, update_user, update_date, trace_id</sql>
+    <sql id="Base_Table">tg_group_account_message</sql>
+</mapper>
