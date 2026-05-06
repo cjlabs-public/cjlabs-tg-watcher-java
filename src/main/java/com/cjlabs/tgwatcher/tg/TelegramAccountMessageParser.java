@@ -12,8 +12,8 @@ import java.util.regex.Pattern;
 public class TelegramAccountMessageParser {
 
     private static final Pattern ACCOUNT_PATTERN = Pattern.compile("\\b\\d+-\\d+-\\d+-\\d+\\b");
-    private static final Pattern PHONE_PATTERN = Pattern.compile("\\b0\\d{7,10}\\b");
-    private static final Pattern PASSWORD_PATTERN = Pattern.compile("(?i)\\b(?:password|pass|pwd)\\b\\s*[:：]?\\s*([A-Za-z0-9@#$%^&*._-]+)");
+    private static final Pattern PHONE_PATTERN = Pattern.compile("\\b0(?:\\s*\\d){7,10}\\b");
+    private static final Pattern PASSWORD_PATTERN = Pattern.compile("(?i)\\b(?:password|pass|pwd|pw)\\b\\s*[:：]?\\s*([A-Za-z0-9@#$%^&*._-]+)");
     private static final Pattern NAME_PATTERN = Pattern.compile("(?i)\\bname\\b\\s*[:：]?\\s*\\(?\\s*([^\\r\\n()]+?)\\s*\\)?\\s*$");
     private static final Pattern BANK_PATTERN = Pattern.compile("(?i)\\b(PPCBank|ABA|ACLEDA|Wing|TrueMoney|Canadia|Maybank|Vattanac|Prince)\\b");
 
@@ -38,11 +38,11 @@ public class TelegramAccountMessageParser {
         String name = null;
         String password = null;
         List<String> remarks = new ArrayList<>();
-        String pendingAccountBank = null;
 
         String[] lines = block.replace("\r\n", "\n").replace('\r', '\n').split("\n");
         for (String sourceLine : lines) {
             String line = normalizeLine(sourceLine);
+            line = stripLeadingOrdinal(line);
             if (line.isBlank()) {
                 continue;
             }
@@ -50,18 +50,6 @@ public class TelegramAccountMessageParser {
             Matcher accountMatcher = ACCOUNT_PATTERN.matcher(line);
             if (accountMatcher.find()) {
                 account = accountMatcher.group();
-                String accountPrefix = line.substring(0, accountMatcher.start());
-                String bankInLine = findBank(line);
-                if (bankInLine != null) {
-                    remarks.add(bankInLine);
-                } else if (pendingAccountBank != null) {
-                    remarks.add(pendingAccountBank);
-                } else if (looksLikeAccountLabel(accountPrefix)) {
-                    String bankCandidate = cleanupValue(accountPrefix.replaceAll("(?i)\\b(?:account|acc)\\b\\s*[:：]?", ""));
-                    if (!bankCandidate.isBlank()) {
-                        remarks.add(bankCandidate);
-                    }
-                }
                 continue;
             }
 
@@ -72,9 +60,9 @@ public class TelegramAccountMessageParser {
             }
 
             if (startsWithAny(line, "phone number", "phone", "tel", "mobile")) {
-                phone = cleanupValue(removeLabel(line));
+                phone = normalizePhone(cleanupValue(removeLabel(line)));
                 if (phone.isBlank()) {
-                    phone = matchText(PHONE_PATTERN, line);
+                    phone = normalizePhone(matchText(PHONE_PATTERN, line));
                 }
                 continue;
             }
@@ -90,19 +78,13 @@ public class TelegramAccountMessageParser {
                 Matcher valueAccountMatcher = ACCOUNT_PATTERN.matcher(value);
                 if (valueAccountMatcher.find()) {
                     account = valueAccountMatcher.group();
-                    String bank = findBank(value);
-                    if (bank != null) {
-                        remarks.add(bank);
-                    }
-                } else {
-                    pendingAccountBank = value;
                 }
                 continue;
             }
 
             String linePhone = matchText(PHONE_PATTERN, line);
             if (linePhone != null && phone == null) {
-                phone = linePhone;
+                phone = normalizePhone(linePhone);
                 continue;
             }
 
@@ -127,40 +109,64 @@ public class TelegramAccountMessageParser {
         String normalized = content.replace("\r\n", "\n").replace('\r', '\n').strip();
         String[] parts = normalized.split("\\n\\s*\\n+");
         List<String> blocks = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
 
         for (String part : parts) {
-            if (current.isEmpty()) {
-                current.append(part.strip());
-                continue;
-            }
-
-            if (looksLikeNewRecord(part)) {
-                blocks.add(current.toString());
-                current.setLength(0);
-                current.append(part.strip());
-            } else {
-                current.append('\n').append(part.strip());
-            }
-        }
-
-        if (!current.isEmpty()) {
-            blocks.add(current.toString());
+            blocks.addAll(splitContinuousRecords(part.strip()));
         }
         return blocks;
     }
 
-    private boolean looksLikeNewRecord(String text) {
-        String lower = text.strip().toLowerCase(Locale.ROOT);
-        return lower.startsWith("phone")
-                || lower.startsWith("acc")
-                || lower.startsWith("account")
-                || PHONE_PATTERN.matcher(text).find()
-                || ACCOUNT_PATTERN.matcher(text).find();
+    private List<String> splitContinuousRecords(String text) {
+        List<String> records = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean hasAccount = false;
+        boolean hasPhone = false;
+        boolean hasName = false;
+
+        for (String sourceLine : text.split("\n")) {
+            String line = normalizeLine(sourceLine);
+            if (line.isBlank()) {
+                continue;
+            }
+
+            boolean newRecordLine = isAccountRecordStartLine(line) && hasAccount;
+            if (newRecordLine && !current.isEmpty()) {
+                records.add(current.toString());
+                current.setLength(0);
+                hasAccount = false;
+                hasPhone = false;
+                hasName = false;
+            }
+
+            if (!current.isEmpty()) {
+                current.append('\n');
+            }
+            current.append(line);
+
+            hasAccount = hasAccount || ACCOUNT_PATTERN.matcher(line).find();
+            hasPhone = hasPhone || PHONE_PATTERN.matcher(line).find();
+            hasName = hasName || startsWithAny(line, "name");
+        }
+
+        if (!current.isEmpty()) {
+            records.add(current.toString());
+        }
+        return records;
+    }
+
+    private boolean isAccountRecordStartLine(String line) {
+        String normalized = line.strip().replaceFirst("^\\d+\\s*[/.)]\\s*", "");
+        String lower = normalized.toLowerCase(Locale.ROOT);
+        return lower.startsWith("acc")
+                || lower.startsWith("account");
     }
 
     private String normalizeLine(String line) {
         return line == null ? "" : line.replaceAll("\\s+", " ").trim();
+    }
+
+    private String stripLeadingOrdinal(String line) {
+        return line == null ? "" : line.replaceFirst("^\\d+\\s*[/.)]\\s*", "").trim();
     }
 
     private boolean startsWithAny(String line, String... prefixes) {
@@ -201,8 +207,16 @@ public class TelegramAccountMessageParser {
             return "";
         }
         return value.replaceAll("^[:：]+", "")
-                .replaceAll("^\\(+|\\)+$", "")
+                .replaceAll("(?i)\\b(PPCBank|ABA|ACLEDA|Wing|TrueMoney|Canadia|Maybank|Vattanac|Prince)\\b", "")
+                .replaceAll("^\\(+|[\\),，]+$", "")
                 .trim();
+    }
+
+    private String normalizePhone(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replaceAll("\\s+", "");
     }
 
     private String blankToNull(String value) {
